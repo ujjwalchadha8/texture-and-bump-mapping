@@ -43,26 +43,17 @@
 using namespace std;
 using namespace Eigen;
 
-//vector<string> filenames;
-
 //----------------------------------
 // VERTICES
 //----------------------------------
 VertexBufferObject VBO_CAT;
 VertexBufferObject VBO_NUT;
-int NUT_VERTICES = 8544;
-int CAT_VERTICES = 12000;
-//int TOTAL = NUT_VERTICES + CAT_VERTICES;
-// int TOTAL = ROSE_VERTICES;
-MatrixXf V_CAT(3,CAT_VERTICES);
-MatrixXf V_NUT(3,NUT_VERTICES);
-//----------------------------------
+
 // EDGES
 //----------------------------------
 VertexBufferObject VBO_OU;
 VertexBufferObject VBO_OV;
-MatrixXf OU(3, NUT_VERTICES);
-MatrixXf OV(3, NUT_VERTICES);
+
 
 
 //----------------------------------
@@ -70,15 +61,17 @@ MatrixXf OV(3, NUT_VERTICES);
 //----------------------------------
 VertexBufferObject VBO_N_CAT;
 VertexBufferObject VBO_N_NUT;
-MatrixXf N_CAT(3,CAT_VERTICES);
-MatrixXf N_NUT(3,NUT_VERTICES);
+
 //----------------------------------
 // TEXTURE
 //----------------------------------
 VertexBufferObject VBO_T_CAT;
 VertexBufferObject VBO_T_NUT;
-MatrixXf T_CAT(2,CAT_VERTICES);
-MatrixXf T_NUT(2,NUT_VERTICES);
+
+
+Object pearObj = Object::fromObjFile("../data/pear_obj/pear_tri.obj");
+Object catObj = Object::fromObjFile("../data/treasure_chest_obj/treasure_chest_tri.obj");
+
 //----------------------------------
 // MODEL MATRIX
 //----------------------------------
@@ -113,270 +106,12 @@ float t;
 float b;
 float aspect;
 
-MatrixXf dna_faces_ou = MatrixXf::Zero(3,NUT_VERTICES);
-MatrixXf dna_vertices_ou = MatrixXf::Zero(3,NUT_VERTICES);
+MatrixXf dna_faces_ou = MatrixXf::Zero(3, pearObj.getVertices().cols());
+MatrixXf dna_vertices_ou = MatrixXf::Zero(3, pearObj.getVertices().cols());
 
-MatrixXf dna_faces_ov = MatrixXf::Zero(3,NUT_VERTICES);
-MatrixXf dna_vertices_ov = MatrixXf::Zero(3,NUT_VERTICES);
+MatrixXf dna_faces_ov = MatrixXf::Zero(3, pearObj.getVertices().cols());
+MatrixXf dna_vertices_ov = MatrixXf::Zero(3, pearObj.getVertices().cols());
 
-vector< Vector3f > dna_out_vertices;
-vector< Vector2f > dna_out_uvs;
-vector< Vector3f > dna_out_normals;
-
-vector< Vector3f > cat_out_vertices;
-vector< Vector2f > cat_out_uvs;
-vector< Vector3f > cat_out_normals;
-
-
-vector<float> split_face_line(string line, int startIdx)
-{
-  string extracted;
-  vector<float> data;
-  int z = startIdx;
-
-  for(int i = z; i <= line.length(); i++){
-    char val = line[i];
-    if(val == '/' || val == ' '  || i == line.length()){ //convert to int and push
-      data.push_back(atof(extracted.c_str()));
-      extracted = "";
-    }else{
-      extracted.push_back(val);
-    }
-  }
-  return data;
-}
-vector<float> split_line(string line, int startIdx)
-{
-  string extracted;
-  vector<float> data;
-  int z = startIdx;
-
-  for(int i = z; i <= line.length(); i++){
-
-    char val = line[i];
-
-    if(val == ' ' || i == line.length()){ // Finished building int
-      // Convert to int and push to data vector
-      data.push_back(atof(extracted.c_str()));
-      extracted = "";
-    }else{ // Still building int
-      extracted.push_back(val);
-    }
-  }
-  return data;
-}
-void readObjFile(string filename, bool cat)
-{
-  cout << "Reading OBJ file: " << filename << endl;
-  // Data holders
-  vector< unsigned int > vertexIndices, uvIndices, normalIndices;
-  vector< Vector3f > temp_vertices;
-  vector< Vector2f > temp_uvs;
-  vector< Vector3f > temp_normals;
-
-  // Create file stream
-  string line;
-  ifstream stream(filename.c_str());
-  getline(stream,line);
-
-  // Parse out beginning comments/new lines
-  while(line[0] == '#'|| line.length() == 0){
-    getline(stream,line);
-  }
-  while(stream){
-    getline(stream,line);
-    if(line.length() == 0) continue;
-    if(line[0] == 'v'){
-      if(line[1] == 't'){ //TEXTURE
-        vector<float> values = split_line(line, 3);
-        Vector2f uv(values[0], values[1]);
-        temp_uvs.push_back(uv);
-      }else if(line[1] == 'n'){ //NORMAL
-        vector<float> values = split_line(line, 3);
-        Vector3f normal(values[0], values[1], values[2]);
-        temp_normals.push_back(normal);
-
-      }else{ //VERTEX
-        vector<float> values = split_line(line, 2);
-        Vector3f vertex(values[0], values[1], values[2]);
-
-        temp_vertices.push_back(vertex);
-      }
-    }else if(line[0] == 'f'){ //FACE
-        unsigned int vertexIndex[3], uvIndex[3], normalIndex[3];
-        vector<float> data = Utils::split_face_line(line, 2);
-        // Vertex, Texture UV, Normal
-        for(int i = 0; i < data.size(); i+= 3)
-        {
-          vertexIndices.push_back(data[i]);
-          uvIndices.push_back(data[i + 1]);
-          normalIndices.push_back(data[i + 2]);
-        }
-    } //end face if
-  } //end while
-  // Use index values to format data correctly
-
-  for(int i = 0; i < vertexIndices.size(); i++)
-  {
-    int vertexIndex = vertexIndices[i] - 1;
-    int uvIndex = uvIndices[i] - 1;
-    int normalIndex = normalIndices[i] - 1;
-
-    Vector3f vertex = temp_vertices[vertexIndex];
-    Vector2f uv = temp_uvs[uvIndex];
-    Vector3f normal = temp_normals[normalIndex];
-
-    if(cat){
-      cat_out_vertices.push_back(vertex);
-      cat_out_uvs.push_back(uv);
-      cat_out_normals.push_back(normal);
-    }else{
-      dna_out_vertices.push_back(vertex);
-      dna_out_uvs.push_back(uv);
-      dna_out_normals.push_back(normal);
-    }
-  }
-
-}
-
-Vector2f calculateBarycenter(int column)
-{
-  // Get uv barycenter
-  float coord_1_x = dna_out_uvs[column](0);
-  float coord_1_y = dna_out_uvs[column](1);
-
-  float coord_2_x = dna_out_uvs[column + 1](0);
-  float coord_2_y = dna_out_uvs[column + 1](1);
-
-  float coord_3_x = dna_out_uvs[column + 2](0);
-  float coord_3_y = dna_out_uvs[column + 2](1);
-
-  // Calculate barycenter
-  float barycenter_x = (coord_1_x + coord_2_x + coord_3_x) / 3;
-  float barycenter_y = (coord_1_y + coord_2_y + coord_3_y) / 3;
-
-  Vector2f barycenter(barycenter_x, barycenter_y);
-
-  return barycenter;
-}
-
-bool isInVector(vector<int> summed, int idx)
-{
-  for(int i = 0; i < summed.size(); i++){
-    if(idx == summed[i]) return true;
-  }
-  return false;
-}
-
-// Calculates alpha, beta, gamma
-Vector3f getParams(Vector2f p, float coord1_x, float coord1_y, float coord2_x, float coord2_y, float coord3_x, float coord3_y)
-{
-  Matrix3f A_;
-  Vector3f b_;
-  A_ << coord1_x, coord2_x, coord3_x, coord1_y, coord2_y, coord3_y, 1, 1, 1;
-  b_ << p(0), p(1), 1;
-
-  Vector3f sol = A_.colPivHouseholderQr().solve(b_);
-  return sol;
-
-}
-
-void calculateDerivatives()
-{
-  float epsilon = 0.1;
-  for(int i = 0; i < dna_out_uvs.size(); i+=3)
-  {
-    int column = i;
-    float coord_1_x = dna_out_uvs[column](0);
-    float coord_1_y = dna_out_uvs[column](1);
-
-    float coord_2_x = dna_out_uvs[column + 1](0);
-    float coord_2_y = dna_out_uvs[column + 1](1);
-
-    float coord_3_x = dna_out_uvs[column + 2](0);
-    float coord_3_y = dna_out_uvs[column + 2](1);
-
-    // Get the 3 points
-    Vector2f barycenter = calculateBarycenter(i);
-    Vector2f p_u = barycenter + Vector2f(epsilon, 0.0);
-    Vector2f p_v = barycenter + Vector2f(0.0, epsilon);
-
-
-    // Get alpha, beta, gamma for the 3 2D points
-    Vector3f p_params = getParams(barycenter, coord_1_x, coord_1_y,  coord_2_x, coord_2_y,  coord_3_x, coord_3_y);
-    Vector3f p_u_params = getParams(p_u, coord_1_x, coord_1_y,  coord_2_x, coord_2_y,  coord_3_x, coord_3_y);
-    Vector3f p_v_params = getParams(p_v, coord_1_x, coord_1_y,  coord_2_x, coord_2_y,  coord_3_x, coord_3_y);
-
-    Vector3f V_p = (p_params(0) * V_NUT.col(i)) + (p_params(1) * V_NUT.col(i + 1)) + (p_params(2) * V_NUT.col(i + 2));
-    Vector3f V_u = (p_u_params(0) * V_NUT.col(i)) + (p_u_params(1) * V_NUT.col(i + 1)) + (p_u_params(2) * V_NUT.col(i + 2));
-    Vector3f V_v = (p_v_params(0) * V_NUT.col(i)) + (p_v_params(1) * V_NUT.col(i + 1)) + (p_v_params(2) * V_NUT.col(i + 2));
-    Vector3f O_u = (V_u - V_p).normalized();
-    Vector3f O_v = (V_v - V_p).normalized();
-
-    // Save values
-    dna_faces_ou.col(i) << O_u;
-    dna_faces_ou.col(i + 1) << O_u;
-    dna_faces_ou.col(i + 2) << O_u;
-    dna_vertices_ou.col(i) << O_u;
-    dna_vertices_ou.col(i + 1) << O_u;
-    dna_vertices_ou.col(i + 2) << O_u;
-
-    dna_faces_ov.col(i) << O_v;
-    dna_faces_ov.col(i + 1) << O_v;
-    dna_faces_ov.col(i + 2) << O_v;
-    dna_vertices_ov.col(i) << O_v;
-    dna_vertices_ov.col(i + 1) << O_v;
-    dna_vertices_ov.col(i + 2) << O_v;
-  }
-  cout << "Done with faces, doing vertices" << endl;
-  // Iterate through all 3d vertices and sum partial derivatives
-  for(int i = 0; i < dna_out_vertices.size(); i++)
-  {
-    vector<int> summed_ov;
-    vector<int> summed_ou;
-    Vector3f current = dna_out_vertices[i];
-    Vector3f sum_ou = dna_vertices_ou.col(i);
-    Vector3f sum_ov = dna_vertices_ov.col(i);
-
-    summed_ov.push_back(i);
-    summed_ou.push_back(i);
-    for(int j = 0; j < dna_out_vertices.size(); j++){
-      if(i == j) continue;
-      if(!isInVector(summed_ou, j)){
-        Vector3f other = dna_out_vertices[j];
-        if(other[0] == current[0] && other[1] == current[1] && other[2] == current[2] ){
-          sum_ou += dna_vertices_ou.col(j);
-          summed_ou.push_back(j);
-        }
-      }
-      if(!isInVector(summed_ov, j)){
-        Vector3f other = dna_out_vertices[j];
-        if(other[0] == current[0] && other[1] == current[1] && other[2] == current[2]){
-          sum_ov += dna_vertices_ov.col(j);
-          summed_ov.push_back(j);
-        }
-      }
-    }
-    // normalize sums and insert into all vertex columns
-    sum_ou = sum_ou.normalized();
-    for(int k = 0; k < summed_ou.size(); k++){
-      int idx = summed_ou[k];
-      dna_vertices_ou.col(idx) = sum_ou;
-    }
-    sum_ov = sum_ov.normalized();
-    for(int k = 0; k < summed_ov.size(); k++){
-      int idx = summed_ov[k];
-      dna_vertices_ov.col(idx) = sum_ov;
-    }
-    if((i % 1000) == 0){
-      cout << "At index: " << i << "/8544" << endl;
-    }
-
-  } //end outer loop
-
-  VBO_OU.update(dna_vertices_ou);
-  VBO_OV.update(dna_vertices_ov);
-}
 
 void initialize(GLFWwindow* window)
 {
@@ -395,48 +130,22 @@ void initialize(GLFWwindow* window)
   VBO_OU.init();
 
   // READ IN OBJ FILES
-//  Object pear = Object::fromObjFile("../data/pear_obj/pear_tri.obj");
-  Object treasure = Object::fromObjFile("../data/treasure_chest_obj/treasure_chest_tri.obj");
-  readObjFile("../data/pear_obj/pear_tri.obj", false);
-  readObjFile("../data/treasure_chest_obj/treasure_chest_tri.obj", true);
 
-  cout << "Pear vertices: " << dna_out_vertices.size() <<endl;
-  cout << "Pear normals: " << dna_out_normals.size() <<endl;
-  cout << "Pear textures: " << dna_out_uvs.size() <<endl;
-  for(long i = 0; i < dna_out_vertices.size(); i++) {
-    Vector3f v_data = dna_out_vertices[i];
-    Vector3f n_data = dna_out_normals[i];
-    Vector2f t_data = dna_out_uvs[i];
-    v_data[0] -= 3;
-    v_data[2] -= 0.5;
-    V_NUT.col(i) << v_data[0], v_data[1], v_data[2];
-    N_NUT.col(i) << n_data[0], n_data[1], n_data[2];
-    T_NUT.col(i) << t_data[0], t_data[1];
-  }
-  calculateDerivatives();
+  cout << "Pear vertices: " << pearObj.getVertices().cols() <<endl;
+  cout << "Pear normals: " << pearObj.getNormals().cols() <<endl;
+  cout << "Pear textures: " << pearObj.getUVs().cols() <<endl;
 
-  cout << "Cat vertices: " << cat_out_vertices.size() << endl;
-  cout << "Cat normals: " << cat_out_normals.size() << endl;
-  cout << "Cat textures: " << cat_out_uvs.size() << endl;
 
-  for(int i = 0; i < cat_out_vertices.size(); i++)
-  {
-    Vector3f v_data = cat_out_vertices[i];
-    Vector3f n_data = cat_out_normals[i];
-    Vector2f t_data = cat_out_uvs[i];
-//    v_data /= 30;
-    v_data[2] -= 2;
-    V_CAT.col(i) << v_data[0], v_data[1], v_data[2];
-    N_CAT.col(i) << n_data[0], n_data[1], n_data[2];
-    T_CAT.col(i) << t_data[0], t_data[1];
-  }
+  cout << "Cat vertices: " << catObj.getVertices().cols() << endl;
+  cout << "Cat normals: " << catObj.getNormals().cols() << endl;
+  cout << "Cat textures: " << catObj.getUVs().cols() << endl;
 
-  VBO_CAT.update(V_CAT);
-  VBO_NUT.update(V_NUT);
-  VBO_N_NUT.update(N_NUT);
-  VBO_N_CAT.update(N_CAT);
-  VBO_T_NUT.update(T_NUT);
-  VBO_T_CAT.update(T_CAT);
+  VBO_CAT.update(catObj.getVertices());
+  VBO_NUT.update(pearObj.getVertices());
+  VBO_N_NUT.update(pearObj.getNormals());
+  VBO_N_CAT.update(catObj.getNormals());
+  VBO_T_NUT.update(pearObj.getUVs());
+  VBO_T_CAT.update(catObj.getUVs());
   // READ IN NORMALS
   //------------------------------------------
   // MODEL MATRIX
@@ -576,7 +285,9 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     switch(key){
       // ROTATE CAT
       // rotate
+
       case GLFW_KEY_1:{
+          pearObj.translate(Vector3f(1., 0., 0.));
         rotation <<
           cos(direction),  0.,  -sin(direction),   0.,
           0.,                 1.,  0.,                   0.,
@@ -689,7 +400,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
   }
 }
 
-int main(void)
+int main()
 {
     GLFWwindow* window;
 
@@ -763,6 +474,9 @@ int main(void)
     // The following line connects the VBO we defined above with the position "slot"
     // in the vertex shader
 
+    vector<MatrixXf> derivatives = pearObj.calculateDerivatives();
+    VBO_OU.update(derivatives.at(0));
+    VBO_OV.update(derivatives.at(1));
     program.bindVertexAttribArray("ov_in", VBO_OV);
     program.bindVertexAttribArray("ou_in", VBO_OU);
 
@@ -809,7 +523,7 @@ int main(void)
       program.bindVertexAttribArray("normal",VBO_N_NUT);
       program.bindVertexAttribArray("texCoord",VBO_T_NUT);
 
-      glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, model.block(0,0,4,4).data());
+      glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, pearObj.getModel().data());
       glUniform1i(program.uniform("isBumpMapping"), true);
 
       glUniform1i(program.uniform("ourTexture"), 0);
@@ -819,7 +533,7 @@ int main(void)
       glActiveTexture(GL_TEXTURE2);
       glBindTexture(GL_TEXTURE_2D, pearBumpTexture); //height map
 
-      for(int i = 0; i < dna_out_vertices.size(); i+=3){
+      for(int i = 0; i < pearObj.getVertices().cols(); i+=3){
         glDrawArrays(GL_TRIANGLES, i , 3);
       }
 
@@ -844,7 +558,7 @@ int main(void)
       glActiveTexture(GL_TEXTURE4);
       glBindTexture(GL_TEXTURE_2D, bricksDisp);
 
-      for(int i = 0; i < cat_out_vertices.size(); i+=3){
+      for(int i = 0; i < catObj.getVertices().cols(); i+=3){
           glDrawArrays(GL_TRIANGLES, i , 3);
       }
       // Swap front and back buffers

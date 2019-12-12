@@ -17,14 +17,22 @@ private:
     MatrixXf vertices;
     MatrixXf uvs;
     MatrixXf normals;
-
+    MatrixXf model;
 public:
     static Object fromObjFile(const string& filePath);
     Object(const MatrixXf& vertices, const MatrixXf& uvs, const MatrixXf& normals);
     MatrixXf getVertices();
     MatrixXf getUVs();
     MatrixXf getNormals();
+    vector<MatrixXf> calculateDerivatives();
+
+    MatrixXf getModel();
+    Vector3f getTranslation();
+    void translate(const Vector3f& translateBy);
+    void scale(float factor);
+    void rotate(int axis, float radians);
+
 };
 
 
-#endif //FINALPROJECT_OBJECT_H
+#endif //FINAL_PROJECT_OBJECT_H
