@@ -28,81 +28,64 @@
 #include <cmath>
 
 #include <math.h>
+#include <unordered_map>
 
 using namespace std;
 using namespace Eigen;
 
 Object Object::fromObjFile(const string &filePath) {
-    cout << "Reading OBJ file: " << filePath << endl;
-    // Data holders
-    vector< unsigned int > vertexIndices, uvIndices, normalIndices;
-    vector< Vector3f > temp_vertices;
-    vector< Vector2f > temp_uvs;
-    vector< Vector3f > temp_normals;
+    vector<unsigned int> vertexIndices, texCoordIndices, normalIndices;
+    vector<Vector3f> allVertices;
+    vector<Vector2f> allTexCoords;
+    vector<Vector3f> allNormals;
 
-    // Create file stream
     string line;
     ifstream stream(filePath.c_str());
     getline(stream,line);
 
-    // Parse out beginning comments/new lines
-    while(line[0] == '#'|| line.length() == 0){
-        getline(stream,line);
-    }
-//    cout << "Initialized with file: " << filePath << endl;
     while(stream){
         getline(stream,line);
         if(line.length() == 0) continue;
         if(line[0] == 'v'){
             if(line[1] == 't'){ //TEXTURE
                 vector<float> values = Utils::split_line(line, 3);
-                Vector2f uv(values[0], values[1]);
-                temp_uvs.push_back(uv);
-            }else if(line[1] == 'n'){ //NORMAL
+                allTexCoords.push_back(Vector2f(values[0], values[1]));
+            } else if(line[1] == 'n') { //NORMAL
                 vector<float> values = Utils::split_line(line, 3);
                 Vector3f normal(values[0], values[1], values[2]);
-                temp_normals.push_back(normal);
-
-            }else{ //VERTEX
+                allNormals.push_back(normal);
+            } else { //VERTEX
                 vector<float> values = Utils::split_line(line, 2);
                 Vector3f vertex(values[0], values[1], values[2]);
-
-                temp_vertices.push_back(vertex);
+                allVertices.push_back(vertex);
             }
         }else if(line[0] == 'f'){ //FACE
-            unsigned int vertexIndex[3], uvIndex[3], normalIndex[3];
             vector<float> data = Utils::split_face_line(line, 2);
-            // Vertex, Texture UV, Normal
-            for(long i = 0; i < data.size(); i+= 3)
-            {
+            for(long i = 0; i < data.size(); i+= 3) {
                 vertexIndices.push_back(data[i]);
-                uvIndices.push_back(data[i + 1]);
+                texCoordIndices.push_back(data[i + 1]);
                 normalIndices.push_back(data[i + 2]);
             }
-        } //end face if
-    } //end while
-    // Use index values to format data correctly
+        }
+    }
+
     MatrixXf vertices(3, vertexIndices.size()), normals(3, vertexIndices.size());
-    MatrixXf uvs(2, vertexIndices.size());
+    MatrixXf texCoords(2, vertexIndices.size());
     for(long i = 0; i < vertexIndices.size(); i++) {
         unsigned int vertexIndex = vertexIndices[i] - 1;
-        unsigned int uvIndex = uvIndices[i] - 1;
+        unsigned int uvIndex = texCoordIndices[i] - 1;
         unsigned int normalIndex = normalIndices[i] - 1;
 
-        Vector3f vertex = temp_vertices[vertexIndex];
-        Vector2f uv = temp_uvs[uvIndex];
-        Vector3f normal = temp_normals[normalIndex];
-
-        vertices.col(i) << vertex;
-        uvs.col(i) << uv;
-        normals.col(i) << normal;
+        vertices.col(i) << allVertices[vertexIndex];
+        texCoords.col(i) << allTexCoords[uvIndex];
+        normals.col(i) << allNormals[normalIndex];
     }
-    return Object(vertices, uvs, normals);
+    return Object(vertices, texCoords, normals);
 }
 
 Object::Object(const MatrixXf& vertices, const MatrixXf& uvs, const MatrixXf& normals) {
     this->vertices = vertices;
-    this->uvs = uvs;
+    this->textureCoordinates = uvs;
     this->normals = normals;
     this->model = MatrixXf(4, 4);
     this->model <<  1,    0.,   0.,   0.,
@@ -111,58 +94,52 @@ Object::Object(const MatrixXf& vertices, const MatrixXf& uvs, const MatrixXf& no
             0.,   0.,   0.,   1.;
 }
 
-Vector3f getParams1(Vector2f p, float coord1_x, float coord1_y, float coord2_x, float coord2_y, float coord3_x, float coord3_y) {
-    Matrix3f A_;
-    Vector3f b_;
-    A_ << coord1_x, coord2_x, coord3_x, coord1_y, coord2_y, coord3_y, 1, 1, 1;
-    b_ << p(0), p(1), 1;
+Vector3f getIntersection(Vector2f p, float aX, float aY, float bX, float bY, float cX, float cY) {
+    Matrix3f A;
+    Vector3f b;
+    A << aX, bX, cX, aY, bY, cY, 1, 1, 1;
+    b << p(0), p(1), 1;
 
-    Vector3f sol = A_.colPivHouseholderQr().solve(b_);
-    return sol;
+    return A.colPivHouseholderQr().solve(b);
 }
 
-bool isInVector1(const vector<int>& summed, int idx)
-{
-    for(int i : summed){
-        if(idx == i) return true;
+template<typename T>
+struct matrix_hash : std::unary_function<T, size_t> {
+    std::size_t operator()(T const& matrix) const {
+        size_t seed = 0;
+        for (size_t i = 0; i < matrix.size(); ++i) {
+            auto elem = *(matrix.data() + i);
+            seed ^= std::hash<typename T::Scalar>()(elem) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        }
+        return seed;
     }
-    return false;
-}
+};
 
-vector<MatrixXf> Object::calculateDerivatives() {
-    MatrixXf dna_faces_ou = MatrixXf::Zero(3, vertices.cols());
-    MatrixXf dna_vertices_ou = MatrixXf::Zero(3, vertices.cols());
+vector<MatrixXf> Object::calculateTangentBasis() {
+    MatrixXf facesOu = MatrixXf::Zero(3, vertices.cols());
+    MatrixXf verticesOu = MatrixXf::Zero(3, vertices.cols());
 
-    MatrixXf dna_faces_ov = MatrixXf::Zero(3, vertices.cols());
-    MatrixXf dna_vertices_ov = MatrixXf::Zero(3, vertices.cols());
+    MatrixXf facesOv = MatrixXf::Zero(3, vertices.cols());
+    MatrixXf verticesOv = MatrixXf::Zero(3, vertices.cols());
 
     float epsilon = 0.1;
-    for(int i = 0; i < uvs.cols(); i+=3)
+    for(long i = 0; i < textureCoordinates.cols(); i+=3)
     {
         int column = i;
-        float coord_1_x = uvs.col(column)(0);
-        float coord_1_y = uvs.col(column)(1);
+        float aX = textureCoordinates.col(column)(0);
+        float aY = textureCoordinates.col(column)(1);
 
-        float coord_2_x = uvs.col(column+1)(0);
-        float coord_2_y = uvs.col(column+1)(1);
+        float bX = textureCoordinates.col(column + 1)(0);
+        float bY = textureCoordinates.col(column + 1)(1);
 
-        float coord_3_x = uvs.col(column+2)(0);
-        float coord_3_y = uvs.col(column+2)(1);
+        float cX = textureCoordinates.col(column + 2)(0);
+        float cY = textureCoordinates.col(column + 2)(1);
 
-        // Get the 3 points
-//    Vector2f barycenter = calculateBarycenter(i);
-        float barycenter_x = (coord_1_x + coord_2_x + coord_3_x) / 3;
-        float barycenter_y = (coord_1_y + coord_2_y + coord_3_y) / 3;
+        Vector2f barycenter((aX + bX + cX) / 3, (aY + bY + cY) / 3);
 
-        Vector2f barycenter(barycenter_x, barycenter_y);
-        Vector2f p_u = barycenter + Vector2f(epsilon, 0.0);
-        Vector2f p_v = barycenter + Vector2f(0.0, epsilon);
-
-
-        // Get alpha, beta, gamma for the 3 2D points
-        Vector3f p_params = getParams1(barycenter, coord_1_x, coord_1_y,  coord_2_x, coord_2_y,  coord_3_x, coord_3_y);
-        Vector3f p_u_params = getParams1(p_u, coord_1_x, coord_1_y,  coord_2_x, coord_2_y,  coord_3_x, coord_3_y);
-        Vector3f p_v_params = getParams1(p_v, coord_1_x, coord_1_y,  coord_2_x, coord_2_y,  coord_3_x, coord_3_y);
+        Vector3f p_params = getIntersection(barycenter, aX, aY, bX, bY, cX, cY);
+        Vector3f p_u_params = getIntersection(barycenter + Vector2f(epsilon, 0.0), aX, aY, bX, bY, cX, cY);
+        Vector3f p_v_params = getIntersection(barycenter + Vector2f(0.0, epsilon), aX, aY, bX, bY, cX, cY);
 
         Vector3f V_p = (p_params(0) * vertices.col(i)) + (p_params(1) * vertices.col(i + 1)) + (p_params(2) * vertices.col(i + 2));
         Vector3f V_u = (p_u_params(0) * vertices.col(i)) + (p_u_params(1) * vertices.col(i + 1)) + (p_u_params(2) * vertices.col(i + 2));
@@ -171,73 +148,45 @@ vector<MatrixXf> Object::calculateDerivatives() {
         Vector3f O_v = (V_v - V_p).normalized();
 
         // Save values
-        dna_faces_ou.col(i) << O_u;
-        dna_faces_ou.col(i + 1) << O_u;
-        dna_faces_ou.col(i + 2) << O_u;
-        dna_vertices_ou.col(i) << O_u;
-        dna_vertices_ou.col(i + 1) << O_u;
-        dna_vertices_ou.col(i + 2) << O_u;
+        facesOu.col(i) << O_u;
+        facesOu.col(i + 1) << O_u;
+        facesOu.col(i + 2) << O_u;
+        verticesOu.col(i) << O_u;
+        verticesOu.col(i + 1) << O_u;
+        verticesOu.col(i + 2) << O_u;
 
-        dna_faces_ov.col(i) << O_v;
-        dna_faces_ov.col(i + 1) << O_v;
-        dna_faces_ov.col(i + 2) << O_v;
-        dna_vertices_ov.col(i) << O_v;
-        dna_vertices_ov.col(i + 1) << O_v;
-        dna_vertices_ov.col(i + 2) << O_v;
+        facesOv.col(i) << O_v;
+        facesOv.col(i + 1) << O_v;
+        facesOv.col(i + 2) << O_v;
+        verticesOv.col(i) << O_v;
+        verticesOv.col(i + 1) << O_v;
+        verticesOv.col(i + 2) << O_v;
     }
-    cout << "Done with faces, doing vertices" << endl;
-    // Iterate through all 3d vertices and sum partial derivatives
-    for(int i = 0; i < vertices.cols(); i++)
-    {
-        vector<int> summed_ov;
-        vector<int> summed_ou;
-        Vector3f current = vertices.col(i);
-        Vector3f sum_ou = dna_vertices_ou.col(i);
-        Vector3f sum_ov = dna_vertices_ov.col(i);
 
-        summed_ov.push_back(i);
-        summed_ou.push_back(i);
-        for(int j = 0; j < vertices.cols(); j++){
-            if(i == j) continue;
-            if(!isInVector1(summed_ou, j)){
-                Vector3f other = vertices.col(j);
-                if(other[0] == current[0] && other[1] == current[1] && other[2] == current[2] ){
-                    sum_ou += dna_vertices_ou.col(j);
-                    summed_ou.push_back(j);
-                }
-            }
-            if(!isInVector1(summed_ov, j)){
-                Vector3f other = vertices.col(j);
-                if(other[0] == current[0] && other[1] == current[1] && other[2] == current[2]){
-                    sum_ov += dna_vertices_ov.col(j);
-                    summed_ov.push_back(j);
-                }
-            }
+    unordered_map<Vector3f, vector<int>, matrix_hash<Vector3f>> vertexToIndexMap;
+    for(long i = 0; i < vertices.cols(); i++) {
+        if (vertexToIndexMap.find(vertices.col(i)) == vertexToIndexMap.end()) {
+            vertexToIndexMap[vertices.col(i)] = std::vector<int>();
         }
-        // normalize sums and insert into all vertex columns
-        sum_ou = sum_ou.normalized();
-        for(int k = 0; k < summed_ou.size(); k++){
-            int idx = summed_ou[k];
-            dna_vertices_ou.col(idx) = sum_ou;
+        vertexToIndexMap[vertices.col(i)].push_back(i);
+    }
+    for(long i = 0; i < vertices.cols(); i++) {
+        Vector3f sum_ou = verticesOu.col(i);
+        Vector3f sum_ov = verticesOv.col(i);
+        for (int otherVertexIndex: vertexToIndexMap[vertices.col(i)]) {
+            sum_ou += verticesOu.col(otherVertexIndex);
+            sum_ov += verticesOv.col(otherVertexIndex);
         }
-        sum_ov = sum_ov.normalized();
-        for(int k = 0; k < summed_ov.size(); k++){
-            int idx = summed_ov[k];
-            dna_vertices_ov.col(idx) = sum_ov;
+        for (int otherVertexIndex: vertexToIndexMap[vertices.col(i)]) {
+            verticesOu.col(otherVertexIndex) = sum_ou;
+            verticesOv.col(otherVertexIndex) = sum_ov;
         }
-        if((i % 1000) == 0){
-            cout << "At index: " << i << "/8544" << endl;
-        }
-
-    } //end outer loop
+    }
 
     vector<MatrixXf> result;
-    result.push_back(dna_vertices_ou);
-    result.push_back(dna_vertices_ov);
+    result.push_back(verticesOu);
+    result.push_back(verticesOv);
     return result;
-//        VBO_OU.update(dna_vertices_ou);
-//        VBO_OV.update(dna_vertices_ov);
-
 }
 
 
@@ -246,8 +195,8 @@ MatrixXf Object::getVertices() {
     return this->vertices;
 }
 
-MatrixXf Object::getUVs() {
-    return this->uvs;
+MatrixXf Object::getTextureCoordinates() {
+    return this->textureCoordinates;
 }
 
 MatrixXf Object::getNormals() {

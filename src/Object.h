@@ -15,16 +15,17 @@ using namespace Eigen;
 class Object {
 private:
     MatrixXf vertices;
-    MatrixXf uvs;
+    MatrixXf textureCoordinates;
     MatrixXf normals;
     MatrixXf model;
+
 public:
     static Object fromObjFile(const string& filePath);
     Object(const MatrixXf& vertices, const MatrixXf& uvs, const MatrixXf& normals);
     MatrixXf getVertices();
-    MatrixXf getUVs();
+    MatrixXf getTextureCoordinates();
     MatrixXf getNormals();
-    vector<MatrixXf> calculateDerivatives();
+    vector<MatrixXf> calculateTangentBasis();
 
     MatrixXf getModel();
     Vector3f getTranslation();
